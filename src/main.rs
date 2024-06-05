@@ -1,3 +1,6 @@
+mod default_ignore;
+
+use default_ignore::DefaultIgnore;
 use git2::Repository;
 use ignore::WalkBuilder;
 use std::fs::File;
@@ -8,7 +11,7 @@ use tempdir::TempDir;
 
 #[derive(StructOpt)]
 #[structopt(
-    name = "repo2file-cli",
+    name = "repo2file",
     about = "Turn a code repository into a single text file."
 )]
 struct Cli {
@@ -30,7 +33,7 @@ struct Cli {
 
     /// Output file
     #[structopt(parse(from_os_str))]
-    output: PathBuf,
+    output: Option<PathBuf>,
 }
 
 fn main() -> io::Result<()> {
@@ -48,7 +51,12 @@ fn main() -> io::Result<()> {
         args.input.clone()
     };
 
-    let mut output_file = File::create(&args.output)?;
+    let output_path = args.output.clone().unwrap_or_else(|| {
+        let current_dir = std::env::current_dir().unwrap();
+        current_dir.join(current_dir.file_name().unwrap())
+    });
+
+    let mut output_file = File::create(output_path)?;
 
     for entry in WalkBuilder::new(input_path)
         .add_custom_ignore_filename(".ignore")
@@ -57,7 +65,7 @@ fn main() -> io::Result<()> {
         .filter(|e| e.file_type().map_or(false, |ft| ft.is_file()))
     {
         let path = entry.path();
-        if should_include(path, &args) {
+        if should_include(path, &args, &DefaultIgnore::default()) {
             let content = std::fs::read_to_string(path)?;
             writeln!(
                 output_file,
@@ -72,32 +80,27 @@ fn main() -> io::Result<()> {
 }
 
 // Function to determine if a file should be included based on the arguments
-fn should_include(path: &Path, args: &Cli) -> bool {
-    // Define default ignore files and directories
-    let default_ignore_files = vec!["node_modules", "target", ".vscode"];
-    let default_ignore_dirs = vec!["node_modules", "target", ".vscode"];
+// Function to determine if a file should be included based on the arguments
+fn should_include(path: &Path, args: &Cli, config: &DefaultIgnore) -> bool {
+    let ignore_files: Vec<&str> = args.ignore_files.as_ref().map_or(
+        config.ignore_files.iter().map(String::as_str).collect(),
+        |v| {
+            v.iter()
+                .map(String::as_str)
+                .chain(config.ignore_files.iter().map(String::as_str))
+                .collect()
+        },
+    );
 
-    // Merge user-provided and default ignore files
-    let ignore_files: Vec<&str> =
-        args.ignore_files
-            .as_ref()
-            .map_or(default_ignore_files.clone(), |v| {
-                v.iter()
-                    .map(String::as_str)
-                    .chain(default_ignore_files.iter().copied())
-                    .collect()
-            });
-
-    // Merge user-provided and default ignore directories
-    let ignore_dirs: Vec<&str> =
-        args.ignore_dirs
-            .as_ref()
-            .map_or(default_ignore_dirs.clone(), |v| {
-                v.iter()
-                    .map(String::as_str)
-                    .chain(default_ignore_dirs.iter().copied())
-                    .collect()
-            });
+    let ignore_dirs: Vec<&str> = args.ignore_dirs.as_ref().map_or(
+        config.ignore_dirs.iter().map(String::as_str).collect(),
+        |v| {
+            v.iter()
+                .map(String::as_str)
+                .chain(config.ignore_dirs.iter().map(String::as_str))
+                .collect()
+        },
+    );
 
     // If include_files is specified, only include those files
     if let Some(include_files) = &args.include_files {
@@ -117,7 +120,7 @@ fn should_include(path: &Path, args: &Cli) -> bool {
         return false;
     }
 
-    true // Include the file by default if no exclusion criteria match
+    true
 }
 
 fn is_github_url(path: &Path) -> bool {
@@ -125,15 +128,35 @@ fn is_github_url(path: &Path) -> bool {
         .map_or(false, |s| s.starts_with("https://github.com/"))
 }
 
-fn clone_repo_to_temp(url: &Path) -> Result<TempDir, git2::Error> {
-    let temp_dir = TempDir::new("temp-repo2file").unwrap();
-    Repository::clone(url.to_str().unwrap(), temp_dir.path())?;
+fn clone_repo_to_temp(url: &Path) -> Result<TempDir, io::Error> {
+    let temp_dir = TempDir::new("temp-repo2file")?;
+    Repository::clone(url.to_str().unwrap(), temp_dir.path()).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::Other,
+            format!("Failed to clone repository: {}", e),
+        )
+    })?;
     Ok(temp_dir)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn default_ignore_files() -> DefaultIgnore {
+        return DefaultIgnore {
+            ignore_files: vec![
+                "node_modules".to_string(),
+                "target".to_string(),
+                ".vscode".to_string(),
+            ],
+            ignore_dirs: vec![
+                "node_modules".to_string(),
+                "target".to_string(),
+                ".vscode".to_string(),
+            ],
+        };
+    }
 
     #[test]
     fn test_should_include_no_ignore_no_include() {
@@ -142,11 +165,11 @@ mod tests {
             ignore_files: None,
             ignore_dirs: None,
             include_files: None,
-            output: PathBuf::from("output.txt"),
+            output: Some(PathBuf::from("output.txt")),
         };
 
         let path = PathBuf::from("input/test_file.txt");
-        assert!(should_include(&path, &args));
+        assert!(should_include(&path, &args, &default_ignore_files()));
     }
 
     #[test]
@@ -156,14 +179,14 @@ mod tests {
             ignore_files: Some(vec!["test_file.txt".to_string()]),
             ignore_dirs: None,
             include_files: None,
-            output: PathBuf::from("output.txt"),
+            output: Some(PathBuf::from("output.txt")),
         };
 
         let path = PathBuf::from("input/test_file.txt");
-        assert!(!should_include(&path, &args));
+        assert!(!should_include(&path, &args, &default_ignore_files()));
 
         let other_path = PathBuf::from("input/other_file.txt");
-        assert!(should_include(&other_path, &args));
+        assert!(should_include(&other_path, &args, &default_ignore_files()));
     }
 
     #[test]
@@ -173,14 +196,14 @@ mod tests {
             ignore_files: None,
             ignore_dirs: Some(vec!["ignore_dir".to_string()]),
             include_files: None,
-            output: PathBuf::from("output.txt"),
+            output: Some(PathBuf::from("output.txt")),
         };
 
         let path = PathBuf::from("input/ignore_dir/test_file.txt");
-        assert!(!should_include(&path, &args));
+        assert!(!should_include(&path, &args, &default_ignore_files()));
 
         let other_path = PathBuf::from("input/other_dir/test_file.txt");
-        assert!(should_include(&other_path, &args));
+        assert!(should_include(&other_path, &args, &default_ignore_files()));
     }
 
     #[test]
@@ -190,14 +213,14 @@ mod tests {
             ignore_files: None,
             ignore_dirs: None,
             include_files: Some(vec!["include_file.txt".to_string()]),
-            output: PathBuf::from("output.txt"),
+            output: Some(PathBuf::from("output.txt")),
         };
 
         let path = PathBuf::from("input/include_file.txt");
-        assert!(should_include(&path, &args));
+        assert!(should_include(&path, &args, &default_ignore_files()));
 
         let other_path = PathBuf::from("input/other_file.txt");
-        assert!(!should_include(&other_path, &args));
+        assert!(!should_include(&other_path, &args, &default_ignore_files()));
     }
 
     #[test]
@@ -207,17 +230,17 @@ mod tests {
             ignore_files: Some(vec!["test_file.txt".to_string()]),
             ignore_dirs: Some(vec!["ignore_dir".to_string()]),
             include_files: None,
-            output: PathBuf::from("output.txt"),
+            output: Some(PathBuf::from("output.txt")),
         };
 
         let path = PathBuf::from("input/test_file.txt");
-        assert!(!should_include(&path, &args));
+        assert!(!should_include(&path, &args, &default_ignore_files()));
 
         let dir_path = PathBuf::from("input/ignore_dir/test_file.txt");
-        assert!(!should_include(&dir_path, &args));
+        assert!(!should_include(&dir_path, &args, &default_ignore_files()));
 
         let other_path = PathBuf::from("input/other_file.txt");
-        assert!(should_include(&other_path, &args));
+        assert!(should_include(&other_path, &args, &default_ignore_files()));
     }
 
     #[test]
@@ -230,17 +253,17 @@ mod tests {
             ]),
             ignore_dirs: None,
             include_files: None,
-            output: PathBuf::from("output.txt"),
+            output: Some(PathBuf::from("output.txt")),
         };
 
         let path = PathBuf::from("input/test_file.txt");
-        assert!(!should_include(&path, &args));
+        assert!(!should_include(&path, &args, &default_ignore_files()));
 
-        let other_path = PathBuf::from("input/ignore_file.txt");
-        assert!(!should_include(&other_path, &args));
+        let path = PathBuf::from("input/ignore_file.txt");
+        assert!(!should_include(&path, &args, &default_ignore_files()));
 
-        let valid_path = PathBuf::from("input/valid_file.txt");
-        assert!(should_include(&valid_path, &args));
+        let path = PathBuf::from("input/valid_file.txt");
+        assert!(should_include(&path, &args, &default_ignore_files()));
     }
 
     #[test]
@@ -250,17 +273,17 @@ mod tests {
             ignore_files: None,
             ignore_dirs: Some(vec!["ignore_dir1".to_string(), "ignore_dir2".to_string()]),
             include_files: None,
-            output: PathBuf::from("output.txt"),
+            output: Some(PathBuf::from("output.txt")),
         };
 
         let path1 = PathBuf::from("input/ignore_dir1/test_file.txt");
-        assert!(!should_include(&path1, &args));
+        assert!(!should_include(&path1, &args, &default_ignore_files()));
 
         let path2 = PathBuf::from("input/ignore_dir2/test_file.txt");
-        assert!(!should_include(&path2, &args));
+        assert!(!should_include(&path2, &args, &default_ignore_files()));
 
         let valid_path = PathBuf::from("input/valid_dir/test_file.txt");
-        assert!(should_include(&valid_path, &args));
+        assert!(should_include(&valid_path, &args, &default_ignore_files()));
     }
 
     #[test]
