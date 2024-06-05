@@ -1,11 +1,11 @@
 [package]
 name = "repo2file-cli"
 version = "0.1.0"
-authors = ["Your Name <you@example.com>"]
+authors = ["Maurits Bos <maurits.bos@gmail.com>"]
 edition = "2018"
 description = "A CLI tool to turn a code repository into a single text file."
 license = "MIT"
-repository = "https://github.com/yourusername/repo2file-cli"
+repository = "https://github.com/mbbrainz/repo2file-cli"
 
 [dependencies]
 structopt = "0.3"
