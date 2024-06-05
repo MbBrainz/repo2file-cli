@@ -2,6 +2,7 @@ mod default_ignore;
 
 use default_ignore::DefaultIgnore;
 use git2::Repository;
+use globset::{Glob, GlobSetBuilder};
 use ignore::WalkBuilder;
 use std::fs::File;
 use std::io::{self, Write};
@@ -80,39 +81,32 @@ fn main() -> io::Result<()> {
 }
 
 // Function to determine if a file should be included based on the arguments
-// Function to determine if a file should be included based on the arguments
 fn should_include(path: &Path, args: &Cli, config: &DefaultIgnore) -> bool {
-    let ignore_files: Vec<&str> = args.ignore_files.as_ref().map_or(
-        config.ignore_files.iter().map(String::as_str).collect(),
-        |v| {
-            v.iter()
-                .map(String::as_str)
-                .chain(config.ignore_files.iter().map(String::as_str))
-                .collect()
-        },
-    );
+    let mut ignore_files: Vec<&str> = config.ignore_files.iter().map(String::as_str).collect();
+    let mut ignore_dirs: Vec<&str> = config.ignore_dirs.iter().map(String::as_str).collect();
 
-    let ignore_dirs: Vec<&str> = args.ignore_dirs.as_ref().map_or(
-        config.ignore_dirs.iter().map(String::as_str).collect(),
-        |v| {
-            v.iter()
-                .map(String::as_str)
-                .chain(config.ignore_dirs.iter().map(String::as_str))
-                .collect()
-        },
-    );
+    if let Some(user_ignore_files) = &args.ignore_files {
+        ignore_files.extend(user_ignore_files.iter().map(String::as_str));
+    }
 
-    // If include_files is specified, only include those files
+    if let Some(user_ignore_dirs) = &args.ignore_dirs {
+        ignore_dirs.extend(user_ignore_dirs.iter().map(String::as_str));
+    }
+
+    let mut glob_builder = GlobSetBuilder::new();
+    for pattern in ignore_files.iter() {
+        glob_builder.add(Glob::new(pattern).unwrap());
+    }
+    let glob_set = glob_builder.build().unwrap();
+
     if let Some(include_files) = &args.include_files {
         return include_files.iter().any(|f| path.ends_with(f));
     }
 
-    // Check if the file should be ignored based on ignore_files
-    if ignore_files.iter().any(|&f| path.ends_with(f)) {
+    if glob_set.is_match(path) {
         return false;
     }
 
-    // Check if the file is in a directory that should be ignored
     if ignore_dirs
         .iter()
         .any(|&d| path.components().any(|comp| comp.as_os_str() == d))
@@ -149,6 +143,7 @@ mod tests {
                 "node_modules".to_string(),
                 "target".to_string(),
                 ".vscode".to_string(),
+                "*.lock".to_string(),
             ],
             ignore_dirs: vec![
                 "node_modules".to_string(),
@@ -170,6 +165,8 @@ mod tests {
 
         let path = PathBuf::from("input/test_file.txt");
         assert!(should_include(&path, &args, &default_ignore_files()));
+        let lock_path = PathBuf::from("input/Cargo.lock");
+        assert!(!should_include(&lock_path, &args, &default_ignore_files()));
     }
 
     #[test]

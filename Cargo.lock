@@ -509,6 +509,7 @@ name = "repo2file-cli"
 version = "0.1.0"
 dependencies = [
  "git2",
+ "globset",
  "ignore",
  "mockall",
  "serde",
