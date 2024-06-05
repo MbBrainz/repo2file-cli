@@ -94,7 +94,7 @@ fn should_include(path: &Path, args: &Cli, config: &DefaultIgnore) -> bool {
     }
 
     let mut glob_builder = GlobSetBuilder::new();
-    for pattern in ignore_files.iter() {
+    for pattern in &ignore_files {
         glob_builder.add(Glob::new(pattern).unwrap());
     }
     let glob_set = glob_builder.build().unwrap();
@@ -103,7 +103,9 @@ fn should_include(path: &Path, args: &Cli, config: &DefaultIgnore) -> bool {
         return include_files.iter().any(|f| path.ends_with(f));
     }
 
-    if glob_set.is_match(path) {
+    let path_str = path.to_str().unwrap_or_default();
+
+    if glob_set.is_match(path_str) || ignore_files.iter().any(|&f| path.ends_with(f)) {
         return false;
     }
 
