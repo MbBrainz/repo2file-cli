@@ -1,0 +1,19 @@
+[package]
+name = "repo2file-cli"
+version = "0.1.0"
+authors = ["Your Name <you@example.com>"]
+edition = "2018"
+description = "A CLI tool to turn a code repository into a single text file."
+license = "MIT"
+repository = "https://github.com/yourusername/repo2file-cli"
+
+[dependencies]
+structopt = "0.3"
+walkdir = "2.3"
+ignore = "0.4"
+git2 = "0.18.3"
+tempdir = "0.3"
+
+[dev-dependencies]
+tempdir = "0.3"
+mockall = "0.12.1"

@@ -1,0 +1,15 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		}
+	],
+	"settings": {},
+	"extensions": {
+		"recommendations": [
+			"serayuzgur.crates",
+			"1yib.rust-bundle",
+			"tamasfe.even-better-toml"
+		]
+	}
+}
