@@ -1,10 +1,11 @@
 [package]
 name = "repo2file-cli"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Maurits Bos <maurits.bos@gmail.com>"]
 edition = "2018"
-description = "A CLI tool to turn a code repository into a single text file."
+description = "A blazing fast CLI tool written in rust to turn a code repository into a single text file."
 license = "MIT"
+keywords = ["cli", "ai", "utility"]
 repository = "https://github.com/mbbrainz/repo2file-cli"
 
 [dependencies]
@@ -20,3 +21,6 @@ globset = "0.4"
 [dev-dependencies]
 tempdir = "0.3"
 mockall = "0.12.1"
+
+[features]
+library = []

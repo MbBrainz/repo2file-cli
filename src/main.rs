@@ -35,6 +35,10 @@ struct Cli {
     /// Output file
     #[structopt(parse(from_os_str))]
     output: Option<PathBuf>,
+
+    /// Boolean to save error log, default is false
+    #[structopt(short, long)]
+    error_log: bool,
 }
 
 fn main() -> io::Result<()> {
@@ -57,7 +61,13 @@ fn main() -> io::Result<()> {
         current_dir.join(current_dir.file_name().unwrap())
     });
 
-    let mut output_file = File::create(output_path)?;
+    let mut output_file = File::create(output_path.clone().with_extension(".txt"))?;
+
+    let mut error_log_file = if args.error_log {
+        Some(File::create(output_path.with_extension(".error.log"))?)
+    } else {
+        None
+    };
 
     for entry in WalkBuilder::new(input_path)
         .add_custom_ignore_filename(".ignore")
@@ -67,17 +77,39 @@ fn main() -> io::Result<()> {
     {
         let path = entry.path();
         if should_include(path, &args, &DefaultIgnore::default()) {
-            let content = std::fs::read_to_string(path)?;
-            writeln!(
-                output_file,
-                "\n\n// File: {}\n\n{}",
-                path.display(),
-                content
-            )?;
+            match std::fs::read_to_string(path) {
+                Ok(content) => {
+                    writeln!(
+                        output_file,
+                        "\n\n// File: {}\n\n{}",
+                        path.display(),
+                        content
+                    )?;
+                }
+                Err(e) => {
+                    write_error_to_log(&mut error_log_file, path, e)?;
+                    continue;
+                }
+            }
         }
     }
 
     Ok(())
+}
+
+fn write_error_to_log(
+    error_log_file: &mut Option<File>,
+    path: &Path,
+    e: io::Error,
+) -> Result<(), io::Error> {
+    Ok(if error_log_file.is_some() {
+        writeln!(
+            error_log_file.as_mut().unwrap(),
+            "Error reading file {}: {}",
+            path.display(),
+            e
+        )?;
+    })
 }
 
 // Function to determine if a file should be included based on the arguments
@@ -163,6 +195,7 @@ mod tests {
             ignore_dirs: None,
             include_files: None,
             output: Some(PathBuf::from("output.txt")),
+            error_log: false,
         };
 
         let path = PathBuf::from("input/test_file.txt");
@@ -179,6 +212,7 @@ mod tests {
             ignore_dirs: None,
             include_files: None,
             output: Some(PathBuf::from("output.txt")),
+            error_log: false,
         };
 
         let path = PathBuf::from("input/test_file.txt");
@@ -196,6 +230,7 @@ mod tests {
             ignore_dirs: Some(vec!["ignore_dir".to_string()]),
             include_files: None,
             output: Some(PathBuf::from("output.txt")),
+            error_log: false,
         };
 
         let path = PathBuf::from("input/ignore_dir/test_file.txt");
@@ -213,6 +248,7 @@ mod tests {
             ignore_dirs: None,
             include_files: Some(vec!["include_file.txt".to_string()]),
             output: Some(PathBuf::from("output.txt")),
+            error_log: false,
         };
 
         let path = PathBuf::from("input/include_file.txt");
@@ -230,6 +266,7 @@ mod tests {
             ignore_dirs: Some(vec!["ignore_dir".to_string()]),
             include_files: None,
             output: Some(PathBuf::from("output.txt")),
+            error_log: false,
         };
 
         let path = PathBuf::from("input/test_file.txt");
@@ -253,6 +290,7 @@ mod tests {
             ignore_dirs: None,
             include_files: None,
             output: Some(PathBuf::from("output.txt")),
+            error_log: false,
         };
 
         let path = PathBuf::from("input/test_file.txt");
@@ -273,6 +311,7 @@ mod tests {
             ignore_dirs: Some(vec!["ignore_dir1".to_string(), "ignore_dir2".to_string()]),
             include_files: None,
             output: Some(PathBuf::from("output.txt")),
+            error_log: false,
         };
 
         let path1 = PathBuf::from("input/ignore_dir1/test_file.txt");
